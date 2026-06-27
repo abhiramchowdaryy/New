@@ -6,6 +6,8 @@
 // tenant-scoped ProcurementDataset from the repository.
 
 import type {
+  Budget,
+  Contract,
   Delivery,
   Invoice,
   PurchaseOrder,
@@ -172,10 +174,32 @@ export const deliveries: Delivery[] = [
   { id: "DEL-9020", poId: "PO-1024", expectedDate: "2025-06-23", actualDate: null }, // pending
 ];
 
+// Annual category budgets (FY2025) for budget-vs-actual analysis.
+export const budgets: Budget[] = [
+  { category: "Raw Materials", fiscalYear: 2025, amount: 850000 },
+  { category: "Logistics", fiscalYear: 2025, amount: 240000 },
+  { category: "IT & Software", fiscalYear: 2025, amount: 300000 },
+  { category: "Facilities", fiscalYear: 2025, amount: 120000 },
+  { category: "Professional Services", fiscalYear: 2025, amount: 200000 },
+  { category: "Packaging", fiscalYear: 2025, amount: 130000 },
+  { category: "Marketing", fiscalYear: 2025, amount: 110000 },
+];
+
+// Supplier contracts with value ceilings and terms.
+export const contracts: Contract[] = [
+  { id: "CON-3001", supplierId: "S01", category: "Raw Materials", startDate: "2025-01-01", endDate: "2025-12-31", ceiling: 600000, autoRenew: true },
+  { id: "CON-3002", supplierId: "S02", category: "Logistics", startDate: "2025-01-01", endDate: "2025-09-30", ceiling: 180000, autoRenew: false },
+  { id: "CON-3003", supplierId: "S03", category: "IT & Software", startDate: "2025-01-01", endDate: "2026-06-30", ceiling: 400000, autoRenew: true },
+  { id: "CON-3004", supplierId: "S07", category: "Raw Materials", startDate: "2025-02-01", endDate: "2025-07-15", ceiling: 250000, autoRenew: false },
+  { id: "CON-3005", supplierId: "S05", category: "Professional Services", startDate: "2025-01-15", endDate: "2025-12-31", ceiling: 200000, autoRenew: false },
+];
+
 /** The demo organization's seed bundle, in one place for the repository. */
 export const demoSeed = {
   suppliers,
   purchaseOrders,
   invoices,
   deliveries,
+  budgets,
+  contracts,
 };

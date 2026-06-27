@@ -42,6 +42,8 @@ const acmeSeed: Seed = {
   ],
   invoices: [],
   deliveries: [],
+  budgets: [{ category: "Raw Materials", fiscalYear: 2025, amount: 100000 }],
+  contracts: [],
 };
 
 const SEEDS: Record<string, Seed> = {
@@ -54,6 +56,8 @@ const EMPTY_SEED: Seed = {
   purchaseOrders: [],
   invoices: [],
   deliveries: [],
+  budgets: [],
+  contracts: [],
 };
 
 export class InMemoryProcurementRepository implements ProcurementRepository {
@@ -65,6 +69,8 @@ export class InMemoryProcurementRepository implements ProcurementRepository {
       purchaseOrders: seed.purchaseOrders,
       invoices: seed.invoices,
       deliveries: seed.deliveries,
+      budgets: seed.budgets,
+      contracts: seed.contracts,
       asOfDate: getAsOfDate(),
     };
   }
