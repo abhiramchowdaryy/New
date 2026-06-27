@@ -1,5 +1,5 @@
 import { detectInvoiceAnomalies } from "@/lib/analytics";
-import { getInvoices, supplierName } from "@/lib/data";
+import { indexDataset, loadProcurementDataset } from "@/lib/data";
 import { moneyExact, moneyCompact, shortDate } from "@/lib/format";
 import { Badge, Card, KpiCard, PageHeader, SeverityBadge } from "@/components/ui";
 import type { AnomalyType } from "@/lib/types";
@@ -10,11 +10,13 @@ const TYPE_LABEL: Record<AnomalyType, string> = {
   overdue: "Overdue",
 };
 
-export default function InvoicesPage() {
-  const invoices = [...getInvoices()].sort((a, b) =>
+export default async function InvoicesPage() {
+  const { data } = await loadProcurementDataset();
+  const { supplierName } = indexDataset(data);
+  const invoices = [...data.invoices].sort((a, b) =>
     b.issueDate.localeCompare(a.issueDate),
   );
-  const anomalies = detectInvoiceAnomalies();
+  const anomalies = detectInvoiceAnomalies(data);
   const byInvoice = new Map<string, typeof anomalies>();
   for (const a of anomalies) {
     const list = byInvoice.get(a.invoiceId) ?? [];

@@ -53,6 +53,20 @@ export interface Delivery {
   actualDate: string | null; // null = not yet delivered
 }
 
+/**
+ * A tenant-scoped bundle of every procurement entity plus the date analytics
+ * should treat as "today". This is the single input to the analytics layer —
+ * the repository produces it per organization, so analytics stays pure and
+ * tenant-agnostic while data access stays tenant-isolated.
+ */
+export interface ProcurementDataset {
+  suppliers: Supplier[];
+  purchaseOrders: PurchaseOrder[];
+  invoices: Invoice[];
+  deliveries: Delivery[];
+  asOfDate: string; // ISO date used for overdue / lateness calculations
+}
+
 // --- Derived / analytics shapes ---
 
 export type AnomalyType = "duplicate" | "price_variance" | "overdue";

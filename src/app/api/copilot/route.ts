@@ -1,6 +1,8 @@
 import { NextRequest } from "next/server";
 import { z } from "zod";
 import { buildCopilotSnapshot } from "@/lib/analytics";
+import { loadProcurementDataset } from "@/lib/data";
+import { can } from "@/lib/auth/roles";
 import { getAnthropic, resolveModel } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
@@ -72,6 +74,16 @@ export async function POST(req: NextRequest) {
   }
   const messages: ChatMessage[] = parsed.data.messages;
 
+  // Resolve tenant + role, then authorize. The snapshot is built only from this
+  // tenant's dataset, so the copilot can never reason over another org's data.
+  const { ctx, data } = await loadProcurementDataset();
+  if (!can(ctx.role, "use:copilot")) {
+    return Response.json(
+      { error: "Your role does not have access to the copilot." },
+      { status: 403 },
+    );
+  }
+
   const client = getAnthropic();
   if (!client) {
     return Response.json(
@@ -83,7 +95,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const snapshot = buildCopilotSnapshot();
+  const snapshot = buildCopilotSnapshot(data);
 
   try {
     const stream = client.messages.stream({

@@ -1,16 +1,12 @@
-// Pure, deterministic analytics over the data layer.
-// These power both the UI and the copilot's grounding snapshot.
+// Pure, deterministic analytics over a tenant-scoped dataset.
+//
+// Every function takes an explicit ProcurementDataset (supplied by the
+// repository) and returns derived shapes. Keeping these pure and dataset-driven
+// is what lets the dashboards and the copilot share one source of truth while
+// the data itself stays tenant-isolated.
 
-import {
-  TODAY,
-  getDeliveries,
-  getInvoices,
-  getPurchaseOrders,
-  getSupplier,
-  getSuppliers,
-  supplierName,
-} from "./data";
 import { daysBetween } from "./format";
+import { indexDataset } from "./data/dataset";
 import {
   ANOMALY_CONFIG,
   RISK_DRIVER_THRESHOLDS,
@@ -20,6 +16,7 @@ import {
 import type {
   DeliveryMetrics,
   InvoiceAnomaly,
+  ProcurementDataset,
   SpendCategory,
   SpendSummary,
   SupplierRisk,
@@ -28,8 +25,9 @@ import type {
 // Spend counts received/closed POs as realized spend; open POs are "committed".
 const REALIZED_STATUSES = new Set(["received", "closed"]);
 
-export function computeSpendSummary(): SpendSummary {
-  const pos = getPurchaseOrders();
+export function computeSpendSummary(data: ProcurementDataset): SpendSummary {
+  const { supplierName } = indexDataset(data);
+  const pos = data.purchaseOrders;
   const realized = pos.filter((p) => REALIZED_STATUSES.has(p.status));
 
   const total = realized.reduce((sum, p) => sum + p.amount, 0);
@@ -67,9 +65,9 @@ export function computeSpendSummary(): SpendSummary {
   return { total, committedOpen, byCategory, bySupplier, monthlyTrend };
 }
 
-export function computeDeliveryMetrics(): DeliveryMetrics {
-  const deliveries = getDeliveries();
-  const pos = new Map(getPurchaseOrders().map((p) => [p.id, p]));
+export function computeDeliveryMetrics(data: ProcurementDataset): DeliveryMetrics {
+  const { supplierName, purchaseOrder } = indexDataset(data);
+  const deliveries = data.deliveries;
 
   let onTime = 0;
   let late = 0;
@@ -87,7 +85,7 @@ export function computeDeliveryMetrics(): DeliveryMetrics {
     if (daysLate > 0) {
       late += 1;
       totalDaysLate += daysLate;
-      const po = pos.get(d.poId);
+      const po = purchaseOrder(d.poId);
       lateDeliveries.push({
         deliveryId: d.id,
         poId: d.poId,
@@ -120,13 +118,16 @@ export function computeDeliveryMetrics(): DeliveryMetrics {
 }
 
 /** On-time delivery rate for one supplier, from their delivered POs. */
-function supplierOnTimeRate(supplierId: string): number | null {
+function supplierOnTimeRate(
+  data: ProcurementDataset,
+  supplierId: string,
+): number | null {
   const poIds = new Set(
-    getPurchaseOrders()
+    data.purchaseOrders
       .filter((p) => p.supplierId === supplierId)
       .map((p) => p.id),
   );
-  const supplierDeliveries = getDeliveries().filter(
+  const supplierDeliveries = data.deliveries.filter(
     (d) => poIds.has(d.poId) && d.actualDate !== null,
   );
   if (supplierDeliveries.length === 0) return null;
@@ -140,18 +141,18 @@ function supplierOnTimeRate(supplierId: string): number | null {
  * Composite supplier risk, 0-100 (higher = riskier).
  * Weighted inverse of sub-scores, blended with live on-time performance.
  */
-export function computeSupplierRisks(): SupplierRisk[] {
-  const spend = computeSpendSummary();
+export function computeSupplierRisks(data: ProcurementDataset): SupplierRisk[] {
+  const spend = computeSpendSummary(data);
   const spendBySupplier = new Map(spend.bySupplier.map((s) => [s.supplierId, s.amount]));
   const openPoBySupplier = new Map<string, number>();
-  for (const p of getPurchaseOrders()) {
+  for (const p of data.purchaseOrders) {
     if (p.status === "open") {
       openPoBySupplier.set(p.supplierId, (openPoBySupplier.get(p.supplierId) ?? 0) + 1);
     }
   }
 
-  const risks = getSuppliers().map<SupplierRisk>((s) => {
-    const liveOnTime = supplierOnTimeRate(s.id);
+  const risks = data.suppliers.map<SupplierRisk>((s) => {
+    const liveOnTime = supplierOnTimeRate(data, s.id);
     const onTimeRate = liveOnTime ?? (s.onTimeRateOverride ?? s.deliveryScore / 100);
 
     // Sub-score weights (sum = 1). Financial + delivery dominate.
@@ -192,9 +193,9 @@ export function computeSupplierRisks(): SupplierRisk[] {
   return risks.sort((a, b) => b.score - a.score);
 }
 
-export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
-  const invoices = getInvoices();
-  const pos = new Map(getPurchaseOrders().map((p) => [p.id, p]));
+export function detectInvoiceAnomalies(data: ProcurementDataset): InvoiceAnomaly[] {
+  const invoices = data.invoices;
+  const { purchaseOrder } = indexDataset(data);
   const anomalies: InvoiceAnomaly[] = [];
 
   // Duplicate detection: same supplier + amount within a short window.
@@ -221,7 +222,7 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
 
   for (const inv of invoices) {
     // Price variance vs linked PO.
-    const po = pos.get(inv.poId);
+    const po = purchaseOrder(inv.poId);
     if (po && inv.amount > po.amount * (1 + ANOMALY_CONFIG.priceVarianceThreshold)) {
       const over = inv.amount - po.amount;
       const pct = Math.round((over / po.amount) * 100);
@@ -235,9 +236,9 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
       });
     }
 
-    // Overdue: past due date and unpaid.
-    if (inv.status === "unpaid" && daysBetween(inv.dueDate, TODAY) > 0) {
-      const daysOverdue = daysBetween(inv.dueDate, TODAY);
+    // Overdue: past due date and unpaid (relative to the dataset's as-of date).
+    if (inv.status === "unpaid" && daysBetween(inv.dueDate, data.asOfDate) > 0) {
+      const daysOverdue = daysBetween(inv.dueDate, data.asOfDate);
       anomalies.push({
         invoiceId: inv.id,
         supplierId: inv.supplierId,
@@ -254,14 +255,15 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
 }
 
 /** Compact, accurate snapshot used to ground the copilot. */
-export function buildCopilotSnapshot() {
-  const spend = computeSpendSummary();
-  const delivery = computeDeliveryMetrics();
-  const risks = computeSupplierRisks();
-  const anomalies = detectInvoiceAnomalies();
+export function buildCopilotSnapshot(data: ProcurementDataset) {
+  const { supplierName } = indexDataset(data);
+  const spend = computeSpendSummary(data);
+  const delivery = computeDeliveryMetrics(data);
+  const risks = computeSupplierRisks(data);
+  const anomalies = detectInvoiceAnomalies(data);
 
   return {
-    asOfDate: TODAY,
+    asOfDate: data.asOfDate,
     currency: "USD",
     spend: {
       totalRealized: spend.total,
@@ -289,7 +291,7 @@ export function buildCopilotSnapshot() {
     })),
     invoiceAnomalies: anomalies.map((a) => ({
       invoice: a.invoiceId,
-      supplier: getSupplier(a.supplierId)?.name ?? a.supplierId,
+      supplier: supplierName(a.supplierId),
       type: a.type,
       severity: a.severity,
       amount: a.amount,
@@ -299,11 +301,11 @@ export function buildCopilotSnapshot() {
 }
 
 // Convenience headline numbers for KPI cards.
-export function computeHeadline() {
-  const spend = computeSpendSummary();
-  const delivery = computeDeliveryMetrics();
-  const risks = computeSupplierRisks();
-  const anomalies = detectInvoiceAnomalies();
+export function computeHeadline(data: ProcurementDataset) {
+  const spend = computeSpendSummary(data);
+  const delivery = computeDeliveryMetrics(data);
+  const risks = computeSupplierRisks(data);
+  const anomalies = detectInvoiceAnomalies(data);
   return {
     totalSpend: spend.total,
     committedOpen: spend.committedOpen,

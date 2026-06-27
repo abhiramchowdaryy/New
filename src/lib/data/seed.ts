@@ -1,13 +1,16 @@
-// Seed dataset + typed accessors.
-// Swap the internals for a DB/ERP connector later; signatures stay stable.
+// Seed dataset for the demo organization.
+//
+// These arrays are the data the in-memory repository loads for the demo tenant.
+// A production adapter (Postgres/Prisma, SAP, CSV) replaces the repository, not
+// this file. Analytics never imports these directly — it receives a
+// tenant-scoped ProcurementDataset from the repository.
 
-import { getAsOfDate } from "./clock";
 import type {
   Delivery,
   Invoice,
   PurchaseOrder,
   Supplier,
-} from "./types";
+} from "../types";
 
 export const suppliers: Supplier[] = [
   {
@@ -169,36 +172,10 @@ export const deliveries: Delivery[] = [
   { id: "DEL-9020", poId: "PO-1024", expectedDate: "2025-06-23", actualDate: null }, // pending
 ];
 
-// "Current date" anchor for overdue/age calculations. Defaults to the seed
-// anchor (deterministic demo); override via PROCUREMENT_AS_OF_DATE. See clock.ts.
-export const TODAY = getAsOfDate();
-
-// --- Accessors (stable surface over the data source) ---
-
-export function getSuppliers(): Supplier[] {
-  return suppliers;
-}
-
-export function getSupplier(id: string): Supplier | undefined {
-  return suppliers.find((s) => s.id === id);
-}
-
-export function getPurchaseOrders(): PurchaseOrder[] {
-  return purchaseOrders;
-}
-
-export function getPurchaseOrder(id: string): PurchaseOrder | undefined {
-  return purchaseOrders.find((p) => p.id === id);
-}
-
-export function getInvoices(): Invoice[] {
-  return invoices;
-}
-
-export function getDeliveries(): Delivery[] {
-  return deliveries;
-}
-
-export function supplierName(id: string): string {
-  return getSupplier(id)?.name ?? id;
-}
+/** The demo organization's seed bundle, in one place for the repository. */
+export const demoSeed = {
+  suppliers,
+  purchaseOrders,
+  invoices,
+  deliveries,
+};

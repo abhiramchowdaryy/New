@@ -1,10 +1,12 @@
 import { computeSpendSummary } from "@/lib/analytics";
+import { loadProcurementDataset } from "@/lib/data";
 import { moneyCompact, money, percent } from "@/lib/format";
 import { Card, KpiCard, PageHeader } from "@/components/ui";
 import { CategoryBarChart, CategoryPieChart, SpendTrendChart } from "@/components/charts";
 
-export default function SpendPage() {
-  const spend = computeSpendSummary();
+export default async function SpendPage() {
+  const { data } = await loadProcurementDataset();
+  const spend = computeSpendSummary(data);
   const grandTotal = spend.total || 1;
 
   return (

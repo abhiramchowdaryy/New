@@ -9,7 +9,12 @@ import {
 } from "./analytics";
 import { RISK_WEIGHTS, bandForScore } from "./config/risk";
 import { SEED_AS_OF_DATE } from "./clock";
-import { getPurchaseOrders } from "./data";
+import { demoSeed } from "./data/seed";
+import type { ProcurementDataset } from "./types";
+
+// Pin the as-of date so anomaly/overdue tests are deterministic regardless of
+// the PROCUREMENT_AS_OF_DATE env var.
+const data: ProcurementDataset = { ...demoSeed, asOfDate: SEED_AS_OF_DATE };
 
 describe("config invariants", () => {
   it("risk weights sum to 1", () => {
@@ -30,7 +35,7 @@ describe("config invariants", () => {
 });
 
 describe("computeSpendSummary", () => {
-  const spend = computeSpendSummary();
+  const spend = computeSpendSummary(data);
 
   it("realized total equals the sum of its category breakdown", () => {
     const catSum = spend.byCategory.reduce((s, c) => s + c.amount, 0);
@@ -43,7 +48,7 @@ describe("computeSpendSummary", () => {
   });
 
   it("committed open equals the sum of open POs", () => {
-    const expected = getPurchaseOrders()
+    const expected = data.purchaseOrders
       .filter((p) => p.status === "open")
       .reduce((s, p) => s + p.amount, 0);
     expect(spend.committedOpen).toBe(expected);
@@ -51,7 +56,7 @@ describe("computeSpendSummary", () => {
 
   it("excludes cancelled POs from realized spend", () => {
     // PO-1023 is cancelled; its supplier (S06) realized spend must not include it.
-    const cancelled = getPurchaseOrders().find((p) => p.status === "cancelled")!;
+    const cancelled = data.purchaseOrders.find((p) => p.status === "cancelled")!;
     expect(cancelled.id).toBe("PO-1023");
     const s06 = spend.bySupplier.find((s) => s.supplierId === "S06");
     // S06 has one received PO (PO-1007, 27500) and the cancelled one.
@@ -72,7 +77,7 @@ describe("computeSpendSummary", () => {
 });
 
 describe("computeDeliveryMetrics", () => {
-  const m = computeDeliveryMetrics();
+  const m = computeDeliveryMetrics(data);
 
   it("partitions deliveries into delivered + pending", () => {
     expect(m.onTime + m.late).toBe(m.delivered);
@@ -97,7 +102,7 @@ describe("computeDeliveryMetrics", () => {
 });
 
 describe("computeSupplierRisks", () => {
-  const risks = computeSupplierRisks();
+  const risks = computeSupplierRisks(data);
 
   it("scores every supplier", () => {
     expect(risks).toHaveLength(8);
@@ -121,7 +126,7 @@ describe("computeSupplierRisks", () => {
 });
 
 describe("detectInvoiceAnomalies", () => {
-  const anomalies = detectInvoiceAnomalies();
+  const anomalies = detectInvoiceAnomalies(data);
 
   it("flags the seeded duplicate invoice (INV-5015)", () => {
     const dup = anomalies.find((a) => a.type === "duplicate");
@@ -153,9 +158,9 @@ describe("detectInvoiceAnomalies", () => {
 
 describe("grounding snapshot", () => {
   it("anchors to the seed as-of date and is internally consistent with the UI math", () => {
-    const snap = buildCopilotSnapshot();
-    const spend = computeSpendSummary();
-    const headline = computeHeadline();
+    const snap = buildCopilotSnapshot(data);
+    const spend = computeSpendSummary(data);
+    const headline = computeHeadline(data);
 
     expect(snap.asOfDate).toBe(SEED_AS_OF_DATE);
     expect(snap.currency).toBe("USD");
