@@ -1,15 +1,20 @@
 import { NextRequest } from "next/server";
+import type Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
-import { buildCopilotSnapshot } from "@/lib/analytics";
 import { loadProcurementDataset } from "@/lib/data";
 import { can } from "@/lib/auth/roles";
 import { getAnthropic, resolveModel } from "@/lib/anthropic";
+import { anthropicToolDefs, runTool } from "@/lib/copilot/tools";
+import { logger } from "@/lib/observability/logger";
+import { rateLimit } from "@/lib/security/rate-limit";
+import type { ProcurementDataset } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_MESSAGES = 20;
 const MAX_CHARS = 4000;
+const MAX_TOOL_TURNS = 6;
 
 const ChatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -36,22 +41,74 @@ const RequestSchema = z.object({
 
 type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
-function systemPrompt(snapshot: unknown): string {
+function systemPrompt(asOfDate: string): string {
   return [
     "You are the AI Procurement Copilot, an analyst for a B2B procurement team.",
-    "You help with spend analysis, supplier risk, invoice anomalies, and delivery delays.",
+    "You help with spend, supplier risk, invoice anomalies, deliveries, contracts, and budgets.",
     "",
     "GROUNDING RULES:",
-    "- Answer ONLY from the PROCUREMENT DATA snapshot below. It is the source of truth.",
-    "- Never invent suppliers, numbers, invoices, or dates that are not in the snapshot.",
-    "- If the data does not contain the answer, say so plainly and suggest what to look at.",
-    "- All amounts are in USD. The snapshot's asOfDate is the current date.",
-    "- Be concise and decision-oriented. Lead with the answer, then the supporting figures.",
-    "- When useful, format comparisons as short markdown tables or bullet lists.",
-    "",
-    "PROCUREMENT DATA (JSON):",
-    JSON.stringify(snapshot),
+    "- Use the provided tools to retrieve data. Tools are the ONLY source of truth.",
+    "- Never invent suppliers, numbers, invoices, contracts, or dates. If a tool returns nothing, say so.",
+    "- Call tools as needed before answering; prefer the most specific tool for the question.",
+    `- All amounts are USD. Today's date is ${asOfDate}.`,
+    "- Be concise and decision-oriented: lead with the answer, then supporting figures.",
+    "- Cite the specific record IDs (invoice, supplier, delivery, contract, PO) your answer relies on.",
+    "- Use short markdown tables or bullet lists for comparisons.",
   ].join("\n");
+}
+
+/** One assistant→tool→assistant cycle, returning the final text + citations. */
+async function runAgent(
+  client: NonNullable<ReturnType<typeof getAnthropic>>,
+  data: ProcurementDataset,
+  history: { role: "user" | "assistant"; content: string }[],
+): Promise<{ text: string; citations: string[] }> {
+  const convo: Anthropic.MessageParam[] = history.map((m) => ({
+    role: m.role,
+    content: m.content,
+  }));
+  const citations = new Set<string>();
+  let finalText = "";
+  let toolCalls = 0;
+
+  for (let turn = 0; turn < MAX_TOOL_TURNS; turn++) {
+    const resp = await client.messages.create({
+      model: resolveModel(),
+      max_tokens: 2048,
+      system: systemPrompt(data.asOfDate),
+      tools: anthropicToolDefs(),
+      messages: convo,
+    });
+
+    const textBlocks = resp.content.filter(
+      (b): b is Anthropic.TextBlock => b.type === "text",
+    );
+    if (textBlocks.length > 0) {
+      finalText = textBlocks.map((b) => b.text).join("\n").trim();
+    }
+
+    const toolUses = resp.content.filter(
+      (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
+    );
+    if (resp.stop_reason !== "tool_use" || toolUses.length === 0) break;
+
+    convo.push({ role: "assistant", content: resp.content });
+    const results: Anthropic.ToolResultBlockParam[] = toolUses.map((tu) => {
+      toolCalls += 1;
+      const r = runTool(data, tu.name, tu.input);
+      r.citations.forEach((c) => citations.add(c));
+      return {
+        type: "tool_result",
+        tool_use_id: tu.id,
+        content: JSON.stringify(r.data),
+        is_error: !r.ok,
+      };
+    });
+    convo.push({ role: "user", content: results });
+  }
+
+  logger.info("copilot.answered", { toolCalls, citations: citations.size });
+  return { text: finalText, citations: [...citations] };
 }
 
 export async function POST(req: NextRequest) {
@@ -74,13 +131,22 @@ export async function POST(req: NextRequest) {
   }
   const messages: ChatMessage[] = parsed.data.messages;
 
-  // Resolve tenant + role, then authorize. The snapshot is built only from this
-  // tenant's dataset, so the copilot can never reason over another org's data.
+  // Resolve tenant + role, then authorize. Tools read only this tenant's
+  // dataset, so the copilot can never reason over another org's data.
   const { ctx, data } = await loadProcurementDataset();
   if (!can(ctx.role, "use:copilot")) {
     return Response.json(
       { error: "Your role does not have access to the copilot." },
       { status: 403 },
+    );
+  }
+
+  // Per-tenant rate limit on the paid LLM endpoint (cost-exhaustion guard).
+  const limit = rateLimit(`copilot:${ctx.tenantId}`);
+  if (!limit.allowed) {
+    return Response.json(
+      { error: "Rate limit exceeded. Please wait a moment and try again." },
+      { status: 429, headers: { "Retry-After": String(limit.retryAfterSec) } },
     );
   }
 
@@ -95,51 +161,39 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const snapshot = buildCopilotSnapshot(data);
-
+  let answer: { text: string; citations: string[] };
   try {
-    const stream = client.messages.stream({
-      model: resolveModel(),
-      max_tokens: 2048,
-      thinking: { type: "adaptive" },
-      system: systemPrompt(snapshot),
-      messages: messages.map((m) => ({ role: m.role, content: m.content })),
-    });
-
-    const encoder = new TextEncoder();
-    const readable = new ReadableStream<Uint8Array>({
-      async start(controller) {
-        try {
-          for await (const event of stream) {
-            if (
-              event.type === "content_block_delta" &&
-              event.delta.type === "text_delta"
-            ) {
-              controller.enqueue(encoder.encode(event.delta.text));
-            }
-          }
-        } catch (err) {
-          controller.enqueue(
-            encoder.encode("\n\n[The copilot hit an error while responding.]"),
-          );
-          console.error("Copilot stream error:", err);
-        } finally {
-          controller.close();
-        }
-      },
-    });
-
-    return new Response(readable, {
-      headers: {
-        "Content-Type": "text/plain; charset=utf-8",
-        "Cache-Control": "no-store",
-      },
-    });
+    answer = await runAgent(client, data, messages);
   } catch (err) {
-    console.error("Copilot request error:", err);
+    logger.error("copilot.failed", { tenantId: ctx.tenantId, err: String(err) });
     return Response.json(
       { error: "Failed to reach the model. Check your API key and try again." },
       { status: 502 },
     );
   }
+
+  // Stream the grounded answer, then a deterministic Sources line so every
+  // response is traceable to real records even if the model omits inline cites.
+  const encoder = new TextEncoder();
+  const readable = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const text = answer.text || "I couldn't find supporting data for that. Try rephrasing.";
+      for (let i = 0; i < text.length; i += 80) {
+        controller.enqueue(encoder.encode(text.slice(i, i + 80)));
+      }
+      if (answer.citations.length > 0) {
+        controller.enqueue(
+          encoder.encode(`\n\n**Sources:** ${answer.citations.join(", ")}`),
+        );
+      }
+      controller.close();
+    },
+  });
+
+  return new Response(readable, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
