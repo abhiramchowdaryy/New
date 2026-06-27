@@ -1,12 +1,18 @@
-// Seed dataset + typed accessors.
-// Swap the internals for a DB/ERP connector later; signatures stay stable.
+// Seed dataset for the demo organization.
+//
+// These arrays are the data the in-memory repository loads for the demo tenant.
+// A production adapter (Postgres/Prisma, SAP, CSV) replaces the repository, not
+// this file. Analytics never imports these directly — it receives a
+// tenant-scoped ProcurementDataset from the repository.
 
 import type {
+  Budget,
+  Contract,
   Delivery,
   Invoice,
   PurchaseOrder,
   Supplier,
-} from "./types";
+} from "../types";
 
 export const suppliers: Supplier[] = [
   {
@@ -168,35 +174,32 @@ export const deliveries: Delivery[] = [
   { id: "DEL-9020", poId: "PO-1024", expectedDate: "2025-06-23", actualDate: null }, // pending
 ];
 
-// "Current date" anchor for overdue/age calculations, so the demo is deterministic.
-export const TODAY = "2025-06-26";
+// Annual category budgets (FY2025) for budget-vs-actual analysis.
+export const budgets: Budget[] = [
+  { category: "Raw Materials", fiscalYear: 2025, amount: 850000 },
+  { category: "Logistics", fiscalYear: 2025, amount: 240000 },
+  { category: "IT & Software", fiscalYear: 2025, amount: 300000 },
+  { category: "Facilities", fiscalYear: 2025, amount: 120000 },
+  { category: "Professional Services", fiscalYear: 2025, amount: 200000 },
+  { category: "Packaging", fiscalYear: 2025, amount: 130000 },
+  { category: "Marketing", fiscalYear: 2025, amount: 110000 },
+];
 
-// --- Accessors (stable surface over the data source) ---
+// Supplier contracts with value ceilings and terms.
+export const contracts: Contract[] = [
+  { id: "CON-3001", supplierId: "S01", category: "Raw Materials", startDate: "2025-01-01", endDate: "2025-12-31", ceiling: 600000, autoRenew: true },
+  { id: "CON-3002", supplierId: "S02", category: "Logistics", startDate: "2025-01-01", endDate: "2025-09-30", ceiling: 180000, autoRenew: false },
+  { id: "CON-3003", supplierId: "S03", category: "IT & Software", startDate: "2025-01-01", endDate: "2026-06-30", ceiling: 400000, autoRenew: true },
+  { id: "CON-3004", supplierId: "S07", category: "Raw Materials", startDate: "2025-02-01", endDate: "2025-07-15", ceiling: 250000, autoRenew: false },
+  { id: "CON-3005", supplierId: "S05", category: "Professional Services", startDate: "2025-01-15", endDate: "2025-12-31", ceiling: 200000, autoRenew: false },
+];
 
-export function getSuppliers(): Supplier[] {
-  return suppliers;
-}
-
-export function getSupplier(id: string): Supplier | undefined {
-  return suppliers.find((s) => s.id === id);
-}
-
-export function getPurchaseOrders(): PurchaseOrder[] {
-  return purchaseOrders;
-}
-
-export function getPurchaseOrder(id: string): PurchaseOrder | undefined {
-  return purchaseOrders.find((p) => p.id === id);
-}
-
-export function getInvoices(): Invoice[] {
-  return invoices;
-}
-
-export function getDeliveries(): Delivery[] {
-  return deliveries;
-}
-
-export function supplierName(id: string): string {
-  return getSupplier(id)?.name ?? id;
-}
+/** The demo organization's seed bundle, in one place for the repository. */
+export const demoSeed = {
+  suppliers,
+  purchaseOrders,
+  invoices,
+  deliveries,
+  budgets,
+  contracts,
+};

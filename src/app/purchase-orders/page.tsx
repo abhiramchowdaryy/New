@@ -1,4 +1,4 @@
-import { getPurchaseOrders, supplierName } from "@/lib/data";
+import { indexDataset, loadProcurementDataset } from "@/lib/data";
 import { moneyExact, moneyCompact, shortDate } from "@/lib/format";
 import { Badge, Card, KpiCard, PageHeader } from "@/components/ui";
 import type { PurchaseOrderStatus } from "@/lib/types";
@@ -10,8 +10,10 @@ const STATUS_TONE: Record<PurchaseOrderStatus, "good" | "info" | "warn" | "bad">
   cancelled: "bad",
 };
 
-export default function PurchaseOrdersPage() {
-  const pos = [...getPurchaseOrders()].sort((a, b) =>
+export default async function PurchaseOrdersPage() {
+  const { data } = await loadProcurementDataset();
+  const { supplierName } = indexDataset(data);
+  const pos = [...data.purchaseOrders].sort((a, b) =>
     b.orderDate.localeCompare(a.orderDate),
   );
   const open = pos.filter((p) => p.status === "open");

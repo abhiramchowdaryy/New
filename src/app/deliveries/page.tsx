@@ -1,18 +1,19 @@
 import { computeDeliveryMetrics } from "@/lib/analytics";
-import { getDeliveries, getPurchaseOrder, supplierName } from "@/lib/data";
-import { shortDate, percent } from "@/lib/format";
+import { indexDataset, loadProcurementDataset } from "@/lib/data";
+import { shortDate, percent, daysBetween } from "@/lib/format";
 import { Badge, Card, KpiCard, PageHeader } from "@/components/ui";
 
-export default function DeliveriesPage() {
-  const metrics = computeDeliveryMetrics();
-  const deliveries = [...getDeliveries()].sort((a, b) =>
+export default async function DeliveriesPage() {
+  const { data } = await loadProcurementDataset();
+  const { supplierName, purchaseOrder } = indexDataset(data);
+  const metrics = computeDeliveryMetrics(data);
+  const deliveries = [...data.deliveries].sort((a, b) =>
     b.expectedDate.localeCompare(a.expectedDate),
   );
 
   function daysLate(expected: string, actual: string | null): number | null {
     if (!actual) return null;
-    const ms = new Date(actual).getTime() - new Date(expected).getTime();
-    return Math.round(ms / (1000 * 60 * 60 * 24));
+    return daysBetween(expected, actual);
   }
 
   return (
@@ -48,7 +49,7 @@ export default function DeliveriesPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {deliveries.map((d) => {
-                  const po = getPurchaseOrder(d.poId);
+                  const po = purchaseOrder(d.poId);
                   const dl = daysLate(d.expectedDate, d.actualDate);
                   let status: { label: string; tone: "good" | "bad" | "neutral" };
                   if (d.actualDate === null) status = { label: "pending", tone: "neutral" };

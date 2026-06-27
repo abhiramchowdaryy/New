@@ -35,6 +35,15 @@ npm run dev                      # http://localhost:3000
 All dashboards work **without** an API key. Only the **Copilot** tab needs
 `ANTHROPIC_API_KEY` (get one at https://console.anthropic.com/).
 
+### Quality gates
+
+```bash
+npm run typecheck    # tsc --noEmit (strict)
+npm run lint         # next lint (ESLint)
+npm test             # vitest run — analytics unit tests
+npm run build        # production build
+```
+
 ## Project structure
 
 ```
@@ -43,13 +52,44 @@ src/
     api/copilot/route.ts  # grounded + streamed Claude endpoint
   components/           # Sidebar, charts, UI primitives
   lib/
-    types.ts            # domain types
-    data.ts             # seed dataset + accessors (swap for a DB/ERP later)
-    analytics.ts        # spend, risk, anomaly, delivery computations
+    types.ts            # domain types (incl. ProcurementDataset)
+    auth/
+      roles.ts          # RBAC: roles + permission matrix + can()
+      context.ts        # per-request tenant/user context (auth seam)
+    data/
+      repository.ts     # ProcurementRepository port (async, tenant-scoped)
+      in-memory-repository.ts  # reference adapter, isolated per tenant
+      dataset.ts        # O(1) lookups over a loaded dataset
+      seed.ts           # demo-org seed data
+      index.ts          # getRepository() + loadProcurementDataset()
+    analytics.ts        # pure spend/risk/anomaly/delivery math over a dataset
+    analytics.test.ts   # vitest unit tests for the analytics layer
+    clock.ts            # injectable "as of" date anchor
+    config/risk.ts      # tunable risk weights + anomaly thresholds
     format.ts           # currency/date/number formatting
     anthropic.ts        # Claude client factory
-docs/                   # the 6 planning documents
+docs/                   # planning documents + architecture review
 ```
+
+## Multi-tenancy, auth & RBAC
+
+Data access goes through a tenant-scoped **repository port**
+(`lib/data/repository.ts`). Server Components call `loadProcurementDataset()`,
+which resolves the request's tenant + role (`lib/auth/context.ts`) and returns
+**only that organization's** records — analytics stays pure and tenant-agnostic,
+so there is no path for one tenant to read another's data (covered by an
+isolation regression test).
+
+Authorization is a pure permission matrix over six roles
+(`super_admin`, `org_admin`, `procurement_manager`, `finance`, `supplier`,
+`viewer`) in `lib/auth/roles.ts`; the copilot route enforces `use:copilot`.
+
+With no auth provider configured the app resolves a **demo organization** so it
+runs out of the box. To wire a real provider (Clerk / Auth.js / Entra), set the
+`x-tenant-id` / `x-user-id` / `x-user-role` request headers from the verified
+session in middleware — nothing downstream changes. Swapping the in-memory
+adapter for Postgres/Prisma or an ERP connector is a one-line change in
+`lib/data/index.ts`.
 
 ## How the copilot stays accurate
 
@@ -61,5 +101,7 @@ agree. The Anthropic key and raw data never reach the browser.
 
 ## Next steps
 
-Unit tests for analytics · tool-use copilot (Claude queries live data) ·
-auth + workspace scoping · Postgres/Prisma data layer · CSV/ERP import.
+See [`docs/07-architecture-review.md`](./docs/07-architecture-review.md) for the
+full readiness review and a dependency-ordered roadmap. Near-term:
+tool-use copilot (Claude queries live data) · auth + workspace scoping ·
+Postgres/Prisma data layer · CSV/ERP import.

@@ -6,15 +6,17 @@ import {
   computeSupplierRisks,
   detectInvoiceAnomalies,
 } from "@/lib/analytics";
+import { loadProcurementDataset } from "@/lib/data";
 import { moneyCompact, money, percent } from "@/lib/format";
 import { Card, KpiCard, PageHeader, RiskBadge, SeverityBadge } from "@/components/ui";
 import { SpendTrendChart } from "@/components/charts";
 
-export default function DashboardPage() {
-  const headline = computeHeadline();
-  const spend = computeSpendSummary();
-  const risks = computeSupplierRisks();
-  const anomalies = detectInvoiceAnomalies();
+export default async function DashboardPage() {
+  const { data } = await loadProcurementDataset();
+  const headline = computeHeadline(data);
+  const spend = computeSpendSummary(data);
+  const risks = computeSupplierRisks(data);
+  const anomalies = detectInvoiceAnomalies(data);
 
   const topSuppliers = spend.bySupplier.slice(0, 5);
   const topRisks = risks.slice(0, 4);

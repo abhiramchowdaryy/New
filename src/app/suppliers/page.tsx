@@ -1,5 +1,5 @@
 import { computeSupplierRisks } from "@/lib/analytics";
-import { getSupplier } from "@/lib/data";
+import { indexDataset, loadProcurementDataset } from "@/lib/data";
 import { moneyCompact, percent } from "@/lib/format";
 import { Card, KpiCard, PageHeader, RiskBadge } from "@/components/ui";
 
@@ -18,8 +18,10 @@ function SubScore({ label, value }: { label: string; value: number }) {
   );
 }
 
-export default function SuppliersPage() {
-  const risks = computeSupplierRisks();
+export default async function SuppliersPage() {
+  const { data } = await loadProcurementDataset();
+  const view = indexDataset(data);
+  const risks = computeSupplierRisks(data);
   const high = risks.filter((r) => r.band === "high").length;
   const medium = risks.filter((r) => r.band === "medium").length;
 
@@ -38,7 +40,7 @@ export default function SuppliersPage() {
 
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         {risks.map((r) => {
-          const s = getSupplier(r.supplierId)!;
+          const s = view.supplier(r.supplierId)!;
           return (
             <Card key={r.supplierId}>
               <div className="flex items-start justify-between">
