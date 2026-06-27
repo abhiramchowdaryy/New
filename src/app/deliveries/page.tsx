@@ -1,6 +1,6 @@
 import { computeDeliveryMetrics } from "@/lib/analytics";
 import { getDeliveries, getPurchaseOrder, supplierName } from "@/lib/data";
-import { shortDate, percent } from "@/lib/format";
+import { shortDate, percent, daysBetween } from "@/lib/format";
 import { Badge, Card, KpiCard, PageHeader } from "@/components/ui";
 
 export default function DeliveriesPage() {
@@ -11,8 +11,7 @@ export default function DeliveriesPage() {
 
   function daysLate(expected: string, actual: string | null): number | null {
     if (!actual) return null;
-    const ms = new Date(actual).getTime() - new Date(expected).getTime();
-    return Math.round(ms / (1000 * 60 * 60 * 24));
+    return daysBetween(expected, actual);
   }
 
   return (

@@ -35,6 +35,15 @@ npm run dev                      # http://localhost:3000
 All dashboards work **without** an API key. Only the **Copilot** tab needs
 `ANTHROPIC_API_KEY` (get one at https://console.anthropic.com/).
 
+### Quality gates
+
+```bash
+npm run typecheck    # tsc --noEmit (strict)
+npm run lint         # next lint (ESLint)
+npm test             # vitest run — analytics unit tests
+npm run build        # production build
+```
+
 ## Project structure
 
 ```
@@ -46,9 +55,12 @@ src/
     types.ts            # domain types
     data.ts             # seed dataset + accessors (swap for a DB/ERP later)
     analytics.ts        # spend, risk, anomaly, delivery computations
+    analytics.test.ts   # vitest unit tests for the analytics layer
+    clock.ts            # injectable "as of" date anchor
+    config/risk.ts      # tunable risk weights + anomaly thresholds
     format.ts           # currency/date/number formatting
     anthropic.ts        # Claude client factory
-docs/                   # the 6 planning documents
+docs/                   # planning documents + architecture review
 ```
 
 ## How the copilot stays accurate
@@ -61,5 +73,7 @@ agree. The Anthropic key and raw data never reach the browser.
 
 ## Next steps
 
-Unit tests for analytics · tool-use copilot (Claude queries live data) ·
-auth + workspace scoping · Postgres/Prisma data layer · CSV/ERP import.
+See [`docs/07-architecture-review.md`](./docs/07-architecture-review.md) for the
+full readiness review and a dependency-ordered roadmap. Near-term:
+tool-use copilot (Claude queries live data) · auth + workspace scoping ·
+Postgres/Prisma data layer · CSV/ERP import.

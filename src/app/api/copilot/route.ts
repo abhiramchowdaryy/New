@@ -1,17 +1,38 @@
 import { NextRequest } from "next/server";
+import { z } from "zod";
 import { buildCopilotSnapshot } from "@/lib/analytics";
 import { getAnthropic, resolveModel } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
-
 const MAX_MESSAGES = 20;
 const MAX_CHARS = 4000;
+
+const ChatMessageSchema = z.object({
+  role: z.enum(["user", "assistant"]),
+  content: z.string().min(1),
+});
+
+const RequestSchema = z.object({
+  messages: z
+    .array(ChatMessageSchema)
+    .min(1)
+    // Keep only the most recent turns and clamp content length, rather than
+    // rejecting long histories (the client resends the full conversation).
+    .transform((msgs) =>
+      msgs.slice(-MAX_MESSAGES).map((m) => ({
+        role: m.role,
+        content: m.content.slice(0, MAX_CHARS),
+      })),
+    )
+    // The conversation must end with a user turn for the model to respond to.
+    .refine((msgs) => msgs[msgs.length - 1]?.role === "user", {
+      message: "The last message must be from the user.",
+    }),
+});
+
+type ChatMessage = z.infer<typeof ChatMessageSchema>;
 
 function systemPrompt(snapshot: unknown): string {
   return [
@@ -31,41 +52,25 @@ function systemPrompt(snapshot: unknown): string {
   ].join("\n");
 }
 
-function validate(messages: unknown): ChatMessage[] | null {
-  if (!Array.isArray(messages) || messages.length === 0) return null;
-  const trimmed = messages.slice(-MAX_MESSAGES);
-  const out: ChatMessage[] = [];
-  for (const m of trimmed) {
-    if (
-      !m ||
-      typeof m !== "object" ||
-      ((m as ChatMessage).role !== "user" && (m as ChatMessage).role !== "assistant") ||
-      typeof (m as ChatMessage).content !== "string"
-    ) {
-      return null;
-    }
-    const msg = m as ChatMessage;
-    out.push({ role: msg.role, content: msg.content.slice(0, MAX_CHARS) });
-  }
-  if (out[out.length - 1].role !== "user") return null;
-  return out;
-}
-
 export async function POST(req: NextRequest) {
-  let body: { messages?: unknown };
+  let body: unknown;
   try {
     body = await req.json();
   } catch {
     return Response.json({ error: "Invalid JSON body." }, { status: 400 });
   }
 
-  const messages = validate(body.messages);
-  if (!messages) {
+  const parsed = RequestSchema.safeParse(body);
+  if (!parsed.success) {
     return Response.json(
-      { error: "Body must include a non-empty `messages` array ending with a user turn." },
+      {
+        error: "Body must include a non-empty `messages` array ending with a user turn.",
+        details: parsed.error.issues.map((i) => i.message),
+      },
       { status: 400 },
     );
   }
+  const messages: ChatMessage[] = parsed.data.messages;
 
   const client = getAnthropic();
   if (!client) {

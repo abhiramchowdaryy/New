@@ -11,10 +11,15 @@ import {
   supplierName,
 } from "./data";
 import { daysBetween } from "./format";
+import {
+  ANOMALY_CONFIG,
+  RISK_DRIVER_THRESHOLDS,
+  RISK_WEIGHTS,
+  bandForScore,
+} from "./config/risk";
 import type {
   DeliveryMetrics,
   InvoiceAnomaly,
-  RiskBand,
   SpendCategory,
   SpendSummary,
   SupplierRisk,
@@ -131,12 +136,6 @@ function supplierOnTimeRate(supplierId: string): number | null {
   return onTime / supplierDeliveries.length;
 }
 
-function bandFor(score: number): RiskBand {
-  if (score >= 60) return "high";
-  if (score >= 35) return "medium";
-  return "low";
-}
-
 /**
  * Composite supplier risk, 0-100 (higher = riskier).
  * Weighted inverse of sub-scores, blended with live on-time performance.
@@ -163,18 +162,18 @@ export function computeSupplierRisks(): SupplierRisk[] {
     const onTimeRisk = (1 - onTimeRate) * 100;
 
     const score = Math.round(
-      0.3 * financialRisk +
-        0.2 * deliveryRisk +
-        0.15 * qualityRisk +
-        0.15 * complianceRisk +
-        0.2 * onTimeRisk,
+      RISK_WEIGHTS.financial * financialRisk +
+        RISK_WEIGHTS.delivery * deliveryRisk +
+        RISK_WEIGHTS.quality * qualityRisk +
+        RISK_WEIGHTS.compliance * complianceRisk +
+        RISK_WEIGHTS.onTime * onTimeRisk,
     );
 
     const drivers: string[] = [];
-    if (financialRisk >= 45) drivers.push("Weak financial-health signal");
-    if (onTimeRisk >= 40) drivers.push(`Low on-time delivery (${Math.round(onTimeRate * 100)}%)`);
-    if (qualityRisk >= 35) drivers.push("Below-target quality/acceptance");
-    if (complianceRisk >= 40) drivers.push("Compliance/certification gaps");
+    if (financialRisk >= RISK_DRIVER_THRESHOLDS.financial) drivers.push("Weak financial-health signal");
+    if (onTimeRisk >= RISK_DRIVER_THRESHOLDS.onTime) drivers.push(`Low on-time delivery (${Math.round(onTimeRate * 100)}%)`);
+    if (qualityRisk >= RISK_DRIVER_THRESHOLDS.quality) drivers.push("Below-target quality/acceptance");
+    if (complianceRisk >= RISK_DRIVER_THRESHOLDS.compliance) drivers.push("Compliance/certification gaps");
     if (drivers.length === 0) drivers.push("Healthy across all signals");
 
     return {
@@ -182,7 +181,7 @@ export function computeSupplierRisks(): SupplierRisk[] {
       name: s.name,
       category: s.category,
       score,
-      band: bandFor(score),
+      band: bandForScore(score),
       drivers,
       onTimeRate,
       totalSpend: spendBySupplier.get(s.id) ?? 0,
@@ -192,9 +191,6 @@ export function computeSupplierRisks(): SupplierRisk[] {
 
   return risks.sort((a, b) => b.score - a.score);
 }
-
-const DUP_WINDOW_DAYS = 10;
-const PRICE_VARIANCE_THRESHOLD = 0.05; // >5% over PO amount
 
 export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
   const invoices = getInvoices();
@@ -209,14 +205,14 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
       if (
         a.supplierId === b.supplierId &&
         a.amount === b.amount &&
-        Math.abs(daysBetween(a.issueDate, b.issueDate)) <= DUP_WINDOW_DAYS
+        Math.abs(daysBetween(a.issueDate, b.issueDate)) <= ANOMALY_CONFIG.duplicateWindowDays
       ) {
         anomalies.push({
           invoiceId: b.id,
           supplierId: b.supplierId,
           type: "duplicate",
           severity: "high",
-          message: `Possible duplicate of ${a.id} — same supplier and amount within ${DUP_WINDOW_DAYS} days.`,
+          message: `Possible duplicate of ${a.id} — same supplier and amount within ${ANOMALY_CONFIG.duplicateWindowDays} days.`,
           amount: b.amount,
         });
       }
@@ -226,14 +222,14 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
   for (const inv of invoices) {
     // Price variance vs linked PO.
     const po = pos.get(inv.poId);
-    if (po && inv.amount > po.amount * (1 + PRICE_VARIANCE_THRESHOLD)) {
+    if (po && inv.amount > po.amount * (1 + ANOMALY_CONFIG.priceVarianceThreshold)) {
       const over = inv.amount - po.amount;
       const pct = Math.round((over / po.amount) * 100);
       anomalies.push({
         invoiceId: inv.id,
         supplierId: inv.supplierId,
         type: "price_variance",
-        severity: pct >= 20 ? "high" : "medium",
+        severity: pct >= ANOMALY_CONFIG.priceVarianceHighPct ? "high" : "medium",
         message: `Billed ${pct}% over ${po.id} (${over.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 })} above PO).`,
         amount: inv.amount,
       });
@@ -246,7 +242,7 @@ export function detectInvoiceAnomalies(): InvoiceAnomaly[] {
         invoiceId: inv.id,
         supplierId: inv.supplierId,
         type: "overdue",
-        severity: daysOverdue >= 30 ? "high" : "medium",
+        severity: daysOverdue >= ANOMALY_CONFIG.overdueHighDays ? "high" : "medium",
         message: `Unpaid and ${daysOverdue} days past due (due ${inv.dueDate}).`,
         amount: inv.amount,
       });

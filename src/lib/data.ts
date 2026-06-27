@@ -1,6 +1,7 @@
 // Seed dataset + typed accessors.
 // Swap the internals for a DB/ERP connector later; signatures stay stable.
 
+import { getAsOfDate } from "./clock";
 import type {
   Delivery,
   Invoice,
@@ -168,8 +169,9 @@ export const deliveries: Delivery[] = [
   { id: "DEL-9020", poId: "PO-1024", expectedDate: "2025-06-23", actualDate: null }, // pending
 ];
 
-// "Current date" anchor for overdue/age calculations, so the demo is deterministic.
-export const TODAY = "2025-06-26";
+// "Current date" anchor for overdue/age calculations. Defaults to the seed
+// anchor (deterministic demo); override via PROCUREMENT_AS_OF_DATE. See clock.ts.
+export const TODAY = getAsOfDate();
 
 // --- Accessors (stable surface over the data source) ---
 
