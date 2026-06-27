@@ -5,6 +5,7 @@
 // rest of the app is unaffected. `loadProcurementDataset()` is the one-liner
 // Server Components use to get the current tenant's data.
 
+import { cache } from "react";
 import { getRequestContext, type RequestContext } from "../auth/context";
 import type { ProcurementDataset } from "../types";
 import type { ProcurementRepository } from "./repository";
@@ -20,15 +21,18 @@ export function getRepository(): ProcurementRepository {
   return repository;
 }
 
-/** Resolve the request's tenant context and load its dataset in one call. */
-export async function loadProcurementDataset(): Promise<{
-  ctx: RequestContext;
-  data: ProcurementDataset;
-}> {
-  const ctx = getRequestContext();
-  const data = await getRepository().getDataset(ctx);
-  return { ctx, data };
-}
+/**
+ * Resolve the request's tenant context and load its dataset in one call.
+ * Wrapped in React `cache()` so repeated calls within a single request/render
+ * (multiple Server Components, analytics fan-out) reuse one repository read.
+ */
+export const loadProcurementDataset = cache(
+  async (): Promise<{ ctx: RequestContext; data: ProcurementDataset }> => {
+    const ctx = getRequestContext();
+    const data = await getRepository().getDataset(ctx);
+    return { ctx, data };
+  },
+);
 
 export type { ProcurementRepository } from "./repository";
 export { indexDataset } from "./dataset";

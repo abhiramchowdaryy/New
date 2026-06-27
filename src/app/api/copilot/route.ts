@@ -7,6 +7,7 @@ import { getAnthropic, resolveModel } from "@/lib/anthropic";
 import { anthropicToolDefs, runTool } from "@/lib/copilot/tools";
 import { logger } from "@/lib/observability/logger";
 import { rateLimit } from "@/lib/security/rate-limit";
+import { recordAudit } from "@/lib/security/audit";
 import type { ProcurementDataset } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -161,11 +162,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `req_${Date.now()}`;
+  recordAudit({
+    tenantId: ctx.tenantId,
+    userId: ctx.userId,
+    action: "copilot.query",
+    metadata: { requestId, turns: messages.length },
+  });
+
   let answer: { text: string; citations: string[] };
   try {
     answer = await runAgent(client, data, messages);
   } catch (err) {
-    logger.error("copilot.failed", { tenantId: ctx.tenantId, err: String(err) });
+    logger.error("copilot.failed", { requestId, tenantId: ctx.tenantId, err: String(err) });
     return Response.json(
       { error: "Failed to reach the model. Check your API key and try again." },
       { status: 502 },
