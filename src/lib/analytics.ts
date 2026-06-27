@@ -198,23 +198,30 @@ export function detectInvoiceAnomalies(data: ProcurementDataset): InvoiceAnomaly
   const { purchaseOrder } = indexDataset(data);
   const anomalies: InvoiceAnomaly[] = [];
 
-  // Duplicate detection: same supplier + amount within a short window.
-  for (let i = 0; i < invoices.length; i++) {
-    for (let j = i + 1; j < invoices.length; j++) {
-      const a = invoices[i];
-      const b = invoices[j];
-      if (
-        a.supplierId === b.supplierId &&
-        a.amount === b.amount &&
-        Math.abs(daysBetween(a.issueDate, b.issueDate)) <= ANOMALY_CONFIG.duplicateWindowDays
-      ) {
+  // Duplicate detection in O(n): bucket by supplier+amount, then compare within
+  // each (typically tiny) bucket in issue-date order. Scales to large invoice
+  // volumes where the previous pairwise O(n²) scan would not.
+  const buckets = new Map<string, typeof invoices>();
+  for (const inv of invoices) {
+    const key = `${inv.supplierId}|${inv.amount}`;
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(inv);
+    else buckets.set(key, [inv]);
+  }
+  for (const bucket of buckets.values()) {
+    if (bucket.length < 2) continue;
+    const sorted = [...bucket].sort((a, b) => a.issueDate.localeCompare(b.issueDate));
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const cur = sorted[i];
+      if (daysBetween(prev.issueDate, cur.issueDate) <= ANOMALY_CONFIG.duplicateWindowDays) {
         anomalies.push({
-          invoiceId: b.id,
-          supplierId: b.supplierId,
+          invoiceId: cur.id,
+          supplierId: cur.supplierId,
           type: "duplicate",
           severity: "high",
-          message: `Possible duplicate of ${a.id} — same supplier and amount within ${ANOMALY_CONFIG.duplicateWindowDays} days.`,
-          amount: b.amount,
+          message: `Possible duplicate of ${prev.id} — same supplier and amount within ${ANOMALY_CONFIG.duplicateWindowDays} days.`,
+          amount: cur.amount,
         });
       }
     }

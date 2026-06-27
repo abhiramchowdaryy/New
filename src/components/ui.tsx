@@ -10,8 +10,8 @@ export function PageHeader({
 }) {
   return (
     <div className="mb-6">
-      <h1 className="text-2xl font-semibold text-slate-900">{title}</h1>
-      {subtitle && <p className="mt-1 text-sm text-slate-500">{subtitle}</p>}
+      <h1 className="text-2xl font-semibold text-slate-900 dark:text-slate-100">{title}</h1>
+      {subtitle && <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">{subtitle}</p>}
     </div>
   );
 }
@@ -25,7 +25,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm ${className}`}
+      className={`rounded-xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 ${className}`}
     >
       {children}
     </div>
@@ -46,21 +46,21 @@ export function KpiCard({
   tone?: "neutral" | "good" | "warn" | "bad";
 }) {
   const toneClasses: Record<string, string> = {
-    neutral: "text-slate-900",
-    good: "text-emerald-600",
-    warn: "text-amber-600",
-    bad: "text-rose-600",
+    neutral: "text-slate-900 dark:text-slate-100",
+    good: "text-emerald-600 dark:text-emerald-400",
+    warn: "text-amber-600 dark:text-amber-400",
+    bad: "text-rose-600 dark:text-rose-400",
   };
   return (
     <Card className="flex items-start justify-between">
       <div>
-        <div className="text-sm font-medium text-slate-500">{label}</div>
+        <div className="text-sm font-medium text-slate-500 dark:text-slate-400">{label}</div>
         <div className={`mt-2 text-2xl font-semibold ${toneClasses[tone]}`}>
           {value}
         </div>
         {sub && <div className="mt-1 text-xs text-slate-400">{sub}</div>}
       </div>
-      {icon && <div className="text-slate-300">{icon}</div>}
+      {icon && <div className="text-slate-300 dark:text-slate-600">{icon}</div>}
     </Card>
   );
 }

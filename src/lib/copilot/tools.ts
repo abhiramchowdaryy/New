@@ -19,6 +19,7 @@ import {
   computeSupplierScorecards,
 } from "../advanced-analytics";
 import { computeSupplierRiskProfiles } from "../risk-engine";
+import { computeThreeWayMatch, summarizeThreeWayMatch } from "../three-way-match";
 import { daysBetween } from "../format";
 import type { AnomalyType, ProcurementDataset, SpendCategory } from "../types";
 
@@ -279,6 +280,27 @@ const executiveReport: CopilotTool = {
   },
 };
 
+const threeWayMatch: CopilotTool = {
+  name: "get_three_way_match",
+  description:
+    "PO ↔ goods receipt ↔ invoice match results. Surfaces exceptions (no PO, no receipt, price or quantity mismatch) and the invoice value blocked from payment. Optionally return only exceptions.",
+  inputSchema: {
+    type: "object",
+    properties: {
+      exceptionsOnly: { type: "boolean", description: "Return only non-matched invoices." },
+    },
+    additionalProperties: false,
+  },
+  schema: z.object({ exceptionsOnly: z.boolean().optional() }).strip(),
+  execute(data, input) {
+    const { exceptionsOnly } = input as { exceptionsOnly?: boolean };
+    const all = computeThreeWayMatch(data);
+    const summary = summarizeThreeWayMatch(all);
+    const rows = exceptionsOnly ? all.filter((r) => r.status !== "matched") : all;
+    return { data: { summary, rows }, citations: rows.map((r) => r.invoiceId) };
+  },
+};
+
 export const COPILOT_TOOLS: CopilotTool[] = [
   spendOverview,
   supplierRisk,
@@ -287,6 +309,7 @@ export const COPILOT_TOOLS: CopilotTool[] = [
   recommendSupplier,
   contractRisk,
   budgetStatus,
+  threeWayMatch,
   executiveReport,
 ];
 
