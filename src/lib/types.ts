@@ -72,6 +72,50 @@ export interface Contract {
   autoRenew: boolean;
 }
 
+export type GoodsReceiptStatus = "accepted" | "partial" | "rejected";
+
+/** Goods receipt against a PO — the GR leg of the 3-way match. */
+export interface GoodsReceipt {
+  id: string; // e.g. GR-7001
+  poId: string;
+  receivedDate: string; // ISO date
+  acceptedAmount: number; // value of goods accepted into inventory
+  status: GoodsReceiptStatus;
+}
+
+export type RequisitionStatus = "draft" | "approved" | "rejected" | "converted";
+
+/** Pre-PO demand signal (Phase 4 / requisition-to-PO traceability). */
+export interface PurchaseRequisition {
+  id: string; // e.g. PR-2001
+  costCenter: string;
+  category: SpendCategory;
+  estimatedAmount: number;
+  status: RequisitionStatus;
+  neededBy: string; // ISO date
+  poId?: string; // set once converted to a PO
+}
+
+// --- 3-way match (PO <-> GR <-> Invoice) ---
+
+export type ThreeWayMatchStatus =
+  | "matched"
+  | "no_po"
+  | "no_receipt"
+  | "price_mismatch"
+  | "quantity_mismatch";
+
+export interface ThreeWayMatchRow {
+  invoiceId: string;
+  poId: string;
+  supplierId: string;
+  invoiceAmount: number;
+  poAmount: number | null;
+  receivedAmount: number; // total accepted GR value for the PO
+  status: ThreeWayMatchStatus;
+  detail: string;
+}
+
 /**
  * A tenant-scoped bundle of every procurement entity plus the date analytics
  * should treat as "today". This is the single input to the analytics layer —
@@ -85,6 +129,10 @@ export interface ProcurementDataset {
   deliveries: Delivery[];
   budgets: Budget[];
   contracts: Contract[];
+  // Optional legs of the procure-to-pay chain. Sources that don't provide them
+  // (e.g. a minimal CSV) omit them; 3-way match degrades gracefully.
+  goodsReceipts?: GoodsReceipt[];
+  purchaseRequisitions?: PurchaseRequisition[];
   asOfDate: string; // ISO date used for overdue / lateness calculations
 }
 

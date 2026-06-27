@@ -1,13 +1,25 @@
 import { detectInvoiceAnomalies } from "@/lib/analytics";
+import { computeThreeWayMatch, summarizeThreeWayMatch } from "@/lib/three-way-match";
 import { indexDataset, loadProcurementDataset } from "@/lib/data";
 import { moneyExact, moneyCompact, shortDate } from "@/lib/format";
 import { Badge, Card, KpiCard, PageHeader, SeverityBadge } from "@/components/ui";
-import type { AnomalyType } from "@/lib/types";
+import type { AnomalyType, ThreeWayMatchStatus } from "@/lib/types";
 
 const TYPE_LABEL: Record<AnomalyType, string> = {
   duplicate: "Duplicate",
   price_variance: "Price variance",
   overdue: "Overdue",
+};
+
+const MATCH_META: Record<
+  ThreeWayMatchStatus,
+  { label: string; tone: "good" | "warn" | "bad" | "neutral" }
+> = {
+  matched: { label: "Matched", tone: "good" },
+  no_po: { label: "No PO", tone: "bad" },
+  no_receipt: { label: "No receipt", tone: "warn" },
+  price_mismatch: { label: "Price mismatch", tone: "bad" },
+  quantity_mismatch: { label: "Qty mismatch", tone: "warn" },
 };
 
 export default async function InvoicesPage() {
@@ -27,17 +39,27 @@ export default async function InvoicesPage() {
   const flaggedValue = anomalies.reduce((s, a) => s + a.amount, 0);
   const unpaid = invoices.filter((i) => i.status === "unpaid");
 
+  const matchRows = computeThreeWayMatch(data);
+  const matchSummary = summarizeThreeWayMatch(matchRows);
+  const matchByInvoice = new Map(matchRows.map((r) => [r.invoiceId, r]));
+
   return (
     <div>
       <PageHeader
         title="Invoices"
-        subtitle="Anomaly detection flags duplicates, price variances vs PO, and overdue invoices."
+        subtitle="Anomaly detection plus 3-way match (PO ↔ goods receipt ↔ invoice)."
       />
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-4">
         <KpiCard label="Total invoices" value={String(invoices.length)} />
         <KpiCard label="Flagged anomalies" value={String(anomalies.length)} sub={`${moneyCompact(flaggedValue)} at risk`} tone="bad" />
         <KpiCard label="Unpaid" value={String(unpaid.length)} sub={`${moneyCompact(unpaid.reduce((s, i) => s + i.amount, 0))} outstanding`} tone="warn" />
+        <KpiCard
+          label="Match exceptions"
+          value={String(matchSummary.exceptions)}
+          sub={`${moneyCompact(matchSummary.blockedValue)} blocked`}
+          tone={matchSummary.exceptions > 0 ? "warn" : "good"}
+        />
       </div>
 
       <div className="mt-6">
@@ -52,6 +74,7 @@ export default async function InvoicesPage() {
                   <th scope="col" className="py-2 text-right font-medium">Amount</th>
                   <th scope="col" className="py-2 font-medium">Due</th>
                   <th scope="col" className="py-2 font-medium">Status</th>
+                  <th scope="col" className="py-2 font-medium">3-way match</th>
                   <th scope="col" className="py-2 font-medium">Anomalies</th>
                 </tr>
               </thead>
@@ -67,6 +90,18 @@ export default async function InvoicesPage() {
                       <td className="py-2.5 text-slate-500">{shortDate(inv.dueDate)}</td>
                       <td className="py-2.5">
                         <Badge tone={inv.status === "paid" ? "good" : "warn"}>{inv.status}</Badge>
+                      </td>
+                      <td className="py-2.5">
+                        {(() => {
+                          const m = matchByInvoice.get(inv.id);
+                          if (!m) return <span className="text-xs text-slate-300">—</span>;
+                          const meta = MATCH_META[m.status];
+                          return (
+                            <span title={m.detail}>
+                              <Badge tone={meta.tone}>{meta.label}</Badge>
+                            </span>
+                          );
+                        })()}
                       </td>
                       <td className="py-2.5">
                         {flags.length === 0 ? (

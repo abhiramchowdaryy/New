@@ -9,8 +9,10 @@ import type {
   Budget,
   Contract,
   Delivery,
+  GoodsReceipt,
   Invoice,
   PurchaseOrder,
+  PurchaseRequisition,
   Supplier,
 } from "../types";
 
@@ -194,6 +196,27 @@ export const contracts: Contract[] = [
   { id: "CON-3005", supplierId: "S05", category: "Professional Services", startDate: "2025-01-15", endDate: "2025-12-31", ceiling: 200000, autoRenew: false },
 ];
 
+// Goods receipts: one per realized (received/closed) PO, accepting its full
+// value, except PO-1004 which was a partial receipt (drives a 3-way mismatch
+// against its over-billed invoice INV-5004).
+export const goodsReceipts: GoodsReceipt[] = purchaseOrders
+  .filter((p) => p.status === "received" || p.status === "closed")
+  .map<GoodsReceipt>((p, i) => ({
+    id: `GR-${7001 + i}`,
+    poId: p.id,
+    receivedDate: p.expectedDate,
+    acceptedAmount: p.id === "PO-1004" ? Math.round(p.amount * 0.85) : p.amount,
+    status: p.id === "PO-1004" ? "partial" : "accepted",
+  }));
+
+// A few requisitions, including converted ones linked to their POs.
+export const purchaseRequisitions: PurchaseRequisition[] = [
+  { id: "PR-2001", costCenter: "CC-100", category: "Raw Materials", estimatedAmount: 180000, status: "converted", neededBy: "2025-02-05", poId: "PO-1001" },
+  { id: "PR-2002", costCenter: "CC-220", category: "IT & Software", estimatedAmount: 130000, status: "converted", neededBy: "2025-04-12", poId: "PO-1011" },
+  { id: "PR-2003", costCenter: "CC-310", category: "Marketing", estimatedAmount: 60000, status: "approved", neededBy: "2025-07-15" },
+  { id: "PR-2004", costCenter: "CC-100", category: "Packaging", estimatedAmount: 45000, status: "draft", neededBy: "2025-08-01" },
+];
+
 /** The demo organization's seed bundle, in one place for the repository. */
 export const demoSeed = {
   suppliers,
@@ -202,4 +225,6 @@ export const demoSeed = {
   deliveries,
   budgets,
   contracts,
+  goodsReceipts,
+  purchaseRequisitions,
 };
