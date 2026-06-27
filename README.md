@@ -10,11 +10,15 @@ natural-language questions grounded in your workspace data — powered by Claude
 
 - **Dashboard** — realized spend, on-time delivery %, high-risk suppliers, flagged invoices.
 - **Spend analysis** — by category, by supplier, and monthly trend (Recharts).
-- **Purchase Orders** — full register with status, value, and dates.
-- **Invoices + anomaly detection** — duplicates, price variance vs PO, and overdue invoices.
-- **Supplier risk scoring** — composite 0–100 from financial, delivery, quality, and compliance signals.
-- **Delivery delays** — expected vs actual, days late, SLA breaches.
-- **AI Copilot** — streamed, grounded Q&A over a server-computed analytics snapshot.
+- **Advanced analytics** — spend cube, ABC/Pareto, supplier scorecards, lead/cycle time, budget vs actual, spend + cash-flow forecasts.
+- **Risk engine** — eight-dimension supplier risk (financial, delivery, quality, compliance, ESG, geographic, single-source, price volatility) with per-dimension explanations.
+- **Purchase Orders / Invoices / Suppliers / Deliveries** — full registers; invoice anomaly detection (duplicates, price variance vs PO, overdue).
+- **AI Copilot** — grounded tool-use over the tenant's data; every answer cites the records it used.
+- **Multi-tenant + RBAC** — tenant-isolated data, six roles, request-scoped auth seam.
+- **ERP connectors** — CSV + REST working; SAP/Dynamics/Oracle/NetSuite credential-gated.
+- **Enterprise-ready** — security headers, rate limiting, audit log, health checks, structured logs, dark mode, CSV export, Docker + CI.
+
+See [`docs/08-implementation-status.md`](./docs/08-implementation-status.md) for the per-phase status.
 
 ## Tech stack
 
